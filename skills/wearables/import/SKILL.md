@@ -29,11 +29,31 @@ night, and predictions are scored on months. The raw data stays where it came fr
      weight, blood pressure, glucose) for the range in the request. Not connected or no user: say so in a `result`.
    - **Google Health** (no Open Wearables): pull with `wearables/google-health`, then continue here with its daily
      rows. **Apple Health** through the P.R.O. app: pull with `wearables/apple-health`, the same way. A source already linked to Open Wearables is read there only, never pulled twice.
-   - **Apple Health export** (`export.zip`, any size): never open it yourself; `plsi apple export --file <zip>
-     --out <PLSI_HOME>/work/<thread>/daily.csv` streams it into daily rows (`date,metric,value,unit,source`, the
-     source a kind: watch, phone or other, numbered when one kind has several apps) and lists the record types it
-     did not read; its `sha256` is the export's hash for step 2. Continue at step 3 with `daily.csv`, and pick one
-     source per metric there.
+   - **Apple Health export** (`export.zip`, any size): never open it yourself. Stream it:
+
+     ```bash
+     plsi apple export --file <zip> --out <PLSI_HOME>/work/<thread>/daily.csv --provenance <PLSI_HOME>/work/<thread>/apple-provenance.json
+     ```
+
+     `daily.csv` stays `date,metric,value,unit,source`. `source` is a kind (`watch`, `phone`, `other`; the next app of
+     that kind is `other-2`). The opt-in sidecar is local only. It names the app (`sourceName`) behind each kind,
+     the original start and end with the offset as written, the HRV method (`sdnn` or `rmssd`, from the HealthKit
+     type, never from the number), and a blood-pressure `correlation` when the export's Correlation element paired
+     the two sides. `copies` greater than 1 is the same record listed again. Two rows with the same value and
+     different `start` are repeated readings. `unpaired` and `uncertain` stay in the preview: do not drop them, do
+     not average them, and do not invent a pair because the timestamps match. `abnormal` means a non-physical
+     number was kept; a high or low physical reading is kept with no clinical flag. The sidecar has no device
+     serial, GPS, account id or filename. Do not ingest it, attach it, or send it. Without `--provenance` the CSV
+     is unchanged and the app name cannot be recovered. Stdout `sha256` is the export hash for step 2 and does not
+     repeat the sidecar. Continue at step 3 with `daily.csv`.
+
+     Limits, also listed in the sidecar: step and exercise samples are a count plus the first and last timestamps,
+     not every sample, and an exact repeat in those series is not collapsed. Sleep `date` is the local wake day and the minutes are asleep only (`InBed` and `Awake` are
+     not added; a legacy `Asleep` record that overlaps stages is the coarse copy and is not added again). A night
+     split across midnight stays one session when the stages touch, when they share an `InBed` record, or when an
+     `Awake` record covers a gap of at most two hours and there is no `InBed`. `multi_session` means more than one
+     session ended that local day (a nap and a night): the CSV value is their sum, and the sessions are in the
+     sidecar. This command does not record or project anything, and it has not been checked against a real export.
    - **Export file:** open only the inbox path; list metrics, units, time zone, date range and sampling. Large,
      binary or recurring formats need an `importer` extension (`plsi ext list`); none installed: ask PLSI in a
      `result` for the PLSI Engineer (`engineer/extend`), then step 5 with `--ext <id> --input <file>`.
@@ -57,7 +77,9 @@ night, and predictions are scored on months. The raw data stays where it came fr
    minutes (the device's moderate-or-harder minutes, e.g. Apple exercise time: the month's total / (days in the month
    / 7), min/wk), active days (days with 30 or more of those minutes, / (days in the month / 7), d/wk), VO2max
    estimate (mL/min/kg); `cardiometabolic` for blood pressure and weight. Sleep efficiency has no code: keep it as an uncoded row with a precise label. SDNN and RMSSD
-   are different measures: record each under its own coordinate, never one as the other; an HRV that names neither
+   are different measures: record each under its own coordinate, never one as the other. `plsi apple export` already
+   writes `hrv_sdnn` and `hrv_rmssd` from the HealthKit type; do not move a value from one to the other because the
+   numbers look alike. An HRV that names neither
    stays uncoded unless the device's documentation says which. **One source per metric:** when a watch, a phone or another app report the same metric (an Apple
    Health export usually does), use the device's own merged value if the export has one, else one source per metric
    (for sleep the device worn at night); never add or average overlapping sources, and say the app and the kind of
@@ -85,7 +107,10 @@ night, and predictions are scored on months. The raw data stays where it came fr
 
 4. **Code once per metric, not per row.** One ObservationInput per distinct metric in `labels.json`, normalize, pick
    the candidate that matches the map coordinate when it clearly fits (label, unit, method), and copy its `code` into
-   the `code_system,code` columns of every row of that metric. Units only via `plsi calc convert`.
+   the `code_system,code` columns of every row of that metric. Units only via `plsi calc convert`. Equivalent
+   spellings are the same unit and the number is not scaled: `mmHg` and `mm[Hg]`; Apple's `mL/min·kg` (and
+   `mL/kg/min`, `ml/kg*min`) and `mL/min/kg`. The CSV and `unit_original` keep the spelling the export used. A
+   different quantity (lb to kg, L to mL) is not an alias: convert only when `plsi calc convert` returns a factor.
 
    ```bash
    plsi normalize observations --in labels.json --out labels.norm.json
@@ -126,7 +151,8 @@ night, and predictions are scored on months. The raw data stays where it came fr
 - One import, one dry run, one question; never one per metric or per month. Re-imports of an overlapping range are
   fine: `duplicate` rows are already recorded; never set `repeat` for them.
 - Never store device ids, account names or emails, GPS tracks, workout routes or file names; the CSV keeps only the
-  canonical columns. Open Wearables user ids stay in PLSI's memory, never in a record.
+  canonical columns. The Apple provenance sidecar is the one local exception for app names and timestamps: it stays
+  in the work folder, and it is not a record, not an attachment and not something to send. Open Wearables user ids stay in PLSI's memory, never in a record.
 - Consumer devices are not diagnostic: say so in the `result` when a value looks abnormal, and flag it `uncertain`
   (`orchestrator/urgent`) instead of judging it; never treat a CGM, cuff or ring reading as a diagnosis.
 - Never compare across devices or HRV methods; a device change is a `note` ("wearable changed 2026-10"). A new

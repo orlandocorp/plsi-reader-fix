@@ -18,7 +18,8 @@ steps 3-6.
 - Not when Open Wearables already links Apple Health: read it there (`wearables/import`), never the same source twice.
   With Google Health also connected, `wearables/import` keeps one app per metric.
 - Weight, blood pressure and VO2max are not in P.R.O.: for those, or for history older than 90 days, the Apple
-  Health export (`wearables/google-health` step 1 says how) goes to `wearables/import`.
+  Health export goes to `wearables/import` (`plsi apple export`, with `--provenance` when the app behind a row
+  has to be checked). Do not open the ZIP yourself.
 
 ## Steps
 
@@ -45,8 +46,9 @@ steps 3-6.
 4. **Pull.** `get_daily_metrics` for the range in the request (first connect: 90 days; later: from the first day
    not yet recorded) and `get_workouts` for the same range. Read only what an installed map uses (`plsi maps show
    sleep_activity`): sleep hours (time asleep), resting heart rate, HRV, steps, and exercise minutes from the
-   workouts when `exercise_minutes` is absent. Apple Health's HRV is SDNN: record it as HRV SDNN unless P.R.O. says
-   otherwise. Write `daily.csv` (`date,metric,value,unit,source`) under `<PLSI_HOME>/work/<thread>/`; the source is a
+   workouts when `exercise_minutes` is absent. P.R.O. HRV is SDNN: record it as HRV SDNN unless P.R.O. says
+   otherwise. An export can also carry RMSSD as its own HealthKit type; that is a different row (`wearables/import`),
+   never a substitute for SDNN. Write `daily.csv` (`date,metric,value,unit,source`) under `<PLSI_HOME>/work/<thread>/`; the source is a
    kind ("watch", "phone"), never a device or account name. Detail payloads (`fetch_health_data`) only when a map
    needs them, and at once: they are kept only about 48 hours.
 
