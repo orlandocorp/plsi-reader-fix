@@ -35,25 +35,32 @@ night, and predictions are scored on months. The raw data stays where it came fr
      plsi apple export --file <zip> --out <PLSI_HOME>/work/<thread>/daily.csv --provenance <PLSI_HOME>/work/<thread>/apple-provenance.json
      ```
 
-     `daily.csv` stays `date,metric,value,unit,source`. `source` is a kind (`watch`, `phone`, `other`; the next app of
-     that kind is `other-2`). The opt-in sidecar is local only. It names the app (`sourceName`) behind each kind,
-     the original start and end with the offset as written, the HRV method (`sdnn` or `rmssd`, from the HealthKit
-     type, never from the number), and a blood-pressure `correlation` when the export's Correlation element paired
-     the two sides. `copies` greater than 1 is the same record listed again. Two rows with the same value and
-     different `start` are repeated readings. `unpaired` and `uncertain` stay in the preview: do not drop them, do
-     not average them, and do not invent a pair because the timestamps match. `abnormal` means a non-physical
-     number was kept; a high or low physical reading is kept with no clinical flag. The sidecar has no device
-     serial, GPS, account id or filename. Do not ingest it, attach it, or send it. Without `--provenance` the CSV
-     is unchanged and the app name cannot be recovered. Stdout `sha256` is the export hash for step 2 and does not
-     repeat the sidecar. Continue at step 3 with `daily.csv`.
+     `daily.csv` stays `date,metric,value,unit,source`. `source` is a kind (`watch`, `phone`, `other`; the next of
+     that kind is `other-2`). The same app name on two device strings becomes two sources. The opt-in sidecar is
+     local only. It names the app (`sourceName`) behind each kind, the original start and end with the offset as
+     written, the HRV method (`sdnn` or `rmssd`, from the HealthKit type, never from the number), and a
+     blood-pressure `correlation` only when a Correlation element contained the record. An export has no record
+     id: `attribute_match` means another row has the same app, device slot, time, value and unit, and both rows
+     are kept. Do not drop either, do not average them, and do not call the match a proven duplicate. Do not
+     invent a pair because the timestamps match. `unpaired` and `uncertain` stay in the preview. `abnormal` means
+     a non-physical number was kept; a high or low physical reading is kept with no clinical flag. `device_index`
+     counts distinct device strings in this file, and a missing device attribute is its own string. It is not a
+     device id. The sidecar withholds an app name
+     that contains an address, a path or filename, a UUID, a 32-digit hex token or a coordinate-like number. It
+     does not detect a personal name, so a name the user typed as sourceName can still be there. Do not ingest
+     the sidecar, attach it, or send it. Without `--provenance` the CSV is unchanged and the app name cannot be
+     recovered. Stdout `sha256` is the export hash for step 2 and does not repeat the sidecar. Continue at step 3
+     with `daily.csv`.
 
      Limits, also listed in the sidecar: step and exercise samples are a count plus the first and last timestamps,
-     not every sample, and an exact repeat in those series is not collapsed. Sleep `date` is the local wake day and the minutes are asleep only (`InBed` and `Awake` are
-     not added; a legacy `Asleep` record that overlaps stages is the coarse copy and is not added again). A night
-     split across midnight stays one session when the stages touch, when they share an `InBed` record, or when an
-     `Awake` record covers a gap of at most two hours and there is no `InBed`. `multi_session` means more than one
-     session ended that local day (a nap and a night): the CSV value is their sum, and the sessions are in the
-     sidecar. This command does not record or project anything, and it has not been checked against a real export.
+     not every sample, and a repeated step is not detected and not removed. Sleep `date` is the local wake day and
+     the minutes are asleep only (`InBed` and `Awake` are not added). A legacy `Asleep` interval that sits inside
+     stages and awake adds nothing (`coarse_covered`). One that overlaps stages but sticks out keeps the uncovered
+     remainder (`coarse_partial`); that fill is a heuristic, not a verified night. A gap joined by one `InBed`
+     (`inbed_gap`) or by an `Awake` of at most two hours when there is no `InBed` (`awake_bridge`) is the same.
+     `multi_session` means more than one session ended that local day (a nap and a night): the CSV value is their
+     sum. The file is refused whole, not cut short, past the byte, ratio and attribute limits in the sidecar
+     `bounds`. This command does not record or project anything, and it has not been checked against a real export.
    - **Export file:** open only the inbox path; list metrics, units, time zone, date range and sampling. Large,
      binary or recurring formats need an `importer` extension (`plsi ext list`); none installed: ask PLSI in a
      `result` for the PLSI Engineer (`engineer/extend`), then step 5 with `--ext <id> --input <file>`.

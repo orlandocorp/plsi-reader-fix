@@ -59,7 +59,7 @@ CORE: dict[str, Cmd] = {
                    A("--dry-run", action="store_true")),
                   "ingest observations", ("plsi maps select --instance {instance}",)),
     "apple export": Cmd("plsi.life.apple:export",
-                        (A("--file", required=True, help="Apple Health export.zip (any size; streamed, not extracted)"),
+                        (A("--file", required=True, help="Apple Health export.zip (streamed; refused past the documented size limits)"),
                          A("--out", required=True, help="daily.csv path (date,metric,value,unit,source)"),
                          A("--provenance", help="opt-in local JSON sidecar: app names, timestamps, BP pairs; never ingest or send it")),
                         "daily rows from an Apple Health export, for wearables/import step 3"),
