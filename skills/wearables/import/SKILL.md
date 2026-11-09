@@ -61,6 +61,22 @@ night, and predictions are scored on months. The raw data stays where it came fr
      `multi_session` means more than one session ended that local day (a nap and a night): the CSV value is their
      sum. The file is refused whole, not cut short, past the byte, ratio and attribute limits in the sidecar
      `bounds`. This command does not record or project anything, and it has not been checked against a real export.
+   - **Oura, saved API v2 pages** (no token and no network): a directory of `{"data":[...],"next_token":...}` files
+     named or filed under `sleep`, `daily_activity`, and optionally `daily_sleep`. Do not open them yourself.
+
+     ```bash
+     plsi oura export --dir <raw_dir> --out <PLSI_HOME>/work/<thread>/oura-monthly.csv --provenance <PLSI_HOME>/work/<thread>/oura-provenance.json --as-of YYYY-MM-DD
+     ```
+
+     One main night per `day`: a `long_sleep` if any exist, otherwise the longest session that is not `late_nap`,
+     `rest`, or `deleted`. Do not add naps into the night. The CSV is calendar-month means for closed months only
+     (`--as-of` after the month's last day) with at least 15 days: sleep hours (`h`, from seconds / 3600),
+     `lowest_heart_rate` as a resting-HR proxy (`/min`), `average_hrv` as RMSSD (`ms`, never SDNN), and
+     `daily_activity.steps` (`{steps}/d`). `daily_sleep` is a score and is not those metrics. The sidecar lists
+     excluded months, nulls, duplicate ids, and bounds flags (heart rate under 25 or over 200, RMSSD at or under 0
+     or over 300, sleep over 16 h); flagged days stay in the mean. It stores file sha256s, not `next_token`,
+     emails, device fields, or sample series. Do not ingest this CSV: the map's sleep duration is minutes, and
+     this preview is hours. This command does not record or project anything.
    - **Export file:** open only the inbox path; list metrics, units, time zone, date range and sampling. Large,
      binary or recurring formats need an `importer` extension (`plsi ext list`); none installed: ask PLSI in a
      `result` for the PLSI Engineer (`engineer/extend`), then step 5 with `--ext <id> --input <file>`.
