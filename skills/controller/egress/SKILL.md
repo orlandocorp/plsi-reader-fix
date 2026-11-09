@@ -30,8 +30,10 @@ stricter: reject more, never let through what the gate refused.
 0. **Pack** (a Mothership package request with no file):
 
    ```bash
-   plsi mothership pack --instance <instance>
+   plsi mothership pack --instance <instance> --maps cardiometabolic,sleep_activity --kinds states --omit-subject-field ethnicity --decimals 0
    ```
+
+   Use only the flags. Do not edit the file afterwards: `plsi mothership check` rebuilds the package from the `minimization` record and rejects a hand edit (`PACKAGE_MISMATCH`). `--maps` and repeatable `--exclude-map` choose shareable maps (`care_context` can be excluded; `personal_context` is never packed). `--kinds` is a subset of the consented kinds (`states`, `scores`, `life_events`); a kind that is empty is omitted, and so is a map with no coordinates left. `--omit-subject-field` may only name `sex`, `age_band` or `ethnicity`. `--decimals` 0, 1 or 2 (or `--precision int`, `1dp`, `2dp`) rounds coordinate and series values; omit it to keep the unrounded values. Sex and the five-year age band are unchanged when they are included. The flags are stored in `minimization` and covered by `package_hash`.
 
    Take its output (`file`, in the instance outbox) into step 1. A pack failure (`GATE_FAILED`, not enrolled) is the rejection: say which.
 
@@ -137,7 +139,8 @@ stricter: reject more, never let through what the gate refused.
 3. **Rank Mothership relevance** (packages and contributions that pass step 2). Per section or item: `high` (a scored
    prediction, a verified claim with a falsifier, a dense series on a mapped coordinate), `low` (sparse, ungraded,
    duplicates what was sent: compare `package_hash` with `plsi mothership status`), `none`. Suggest dropping `none`
-   items through the preparing bot; never drop them yourself. Same `package_hash` as the last `sent` entry: result
+   items through the preparing bot, which packs again with `--maps`, `--exclude-map`, `--kinds` or
+   `--omit-subject-field`; never drop them yourself and never hand-edit a package. Same `package_hash` as the last `sent` entry: result
    "Nothing new", nothing to send.
 
 4. **Result to PLSI.** One `result`: `cleared` or `rejected` in the first line of `summary`, then the findings, the

@@ -20,6 +20,7 @@ from statistics import fmean
 from typing import Any
 
 from plsi import codes, files
+from plsi.errors import NotFound, ValidationError
 from plsi.clock import now, ts_filename
 from plsi.life.store import EventStore
 from plsi.life.normalize import known_unit
@@ -45,20 +46,31 @@ def _month(t: datetime | None) -> str | None:
     return t.strftime("%Y-%m") if t else None
 
 
-def _monthly(series: list[Any]) -> list[dict[str, Any]]:
-    """One point per month: its mean and `n`, how many recorded values the mean covers."""
+def _round(value: float, decimals: int | None) -> float:
+    """`None` leaves the value. Otherwise round half even to that many decimal places."""
+    return value if decimals is None else float(f"{value:.{decimals}f}")
+
+
+def _monthly(series: list[Any], decimals: int | None) -> list[dict[str, Any]]:
+    """One point per month: its mean and `n`. Default means keep six significant figures."""
     by: dict[str, list[float]] = {}
     for p in series:
         by.setdefault(str(_month(p.t)), []).append(p.value)
-    return [{"t": m, "value": float(f"{fmean(vals):.6g}"), "n": len(vals)} for m, vals in sorted(by.items())]
+    out = []
+    for month, vals in sorted(by.items()):
+        mean = fmean(vals)
+        value = float(f"{mean:.6g}") if decimals is None else _round(mean, decimals)
+        out.append({"t": month, "value": value, "n": len(vals)})
+    return out
 
 
 class _Wire:
     """What may leave for this instance: the declared free and cpg codes and the known units."""
 
-    def __init__(self, instance: str) -> None:
+    def __init__(self, instance: str, decimals: int | None = None) -> None:
         self.declared = registry.declared_codes(instance)
         self.units = registry.canonical_units(instance)
+        self.decimals = decimals
 
     def code(self, code: Code | None) -> dict[str, str] | None:
         """{system, code} of a code that may leave (plsi.codes.shareable); the display never leaves."""
@@ -82,24 +94,28 @@ class _Wire:
             out |= {k: val for k, val in {"value": v.value, "unit": v.unit,
                                           "comparator": v.comparator.value if v.comparator else None,
                                           "observed": _month(v.observed_at)}.items() if val is not None}
+            if self.decimals is not None and isinstance(out.get("value"), (int, float)) and not isinstance(out.get("value"), bool):
+                out["value"] = _round(float(out["value"]), self.decimals)
         if v.series:
-            out["series"] = _monthly(v.series)
+            out["series"] = _monthly(v.series, self.decimals)
             month = [p["value"] for p in out["series"] if p["t"] == out.get("observed")]
             if "value" in out and v.comparator is None and month:  # the headline value is that month's mean too
                 out["value"] = month[0]
         return out
 
-    def states(self, store: EventStore) -> list[dict[str, Any]]:
+    def states(self, store: EventStore, allowed: set[str] | None = None) -> list[dict[str, Any]]:
         out = []
         for doc in mapper.latest_states(store.instance):
-            if doc.map_id in mapper.LOCAL_MAPS:
+            if doc.map_id in mapper.LOCAL_MAPS or (allowed is not None and doc.map_id not in allowed):
                 continue
             local = LOCAL_COORDINATES | derive.age_based(registry.load_snapshot(store.instance, doc.map_id, doc.map_hash).coordinates)
+            coordinates = {c: self.coordinate(v) for c, v in doc.coordinates.items()
+                           if v.value is not None and c not in local and (isinstance(v.value, list) or self.unit(v.unit))}
+            if not coordinates:
+                continue
             out.append({"map_id": doc.map_id, "map_version": doc.map_version, "map_hash": doc.map_hash.removeprefix("sha256:"),
                         "as_of": _month(doc.as_of), "gaps": sorted(g.coordinate for g in doc.gaps),
-                        "coordinates": {c: self.coordinate(v) for c, v in doc.coordinates.items()
-                                        if v.value is not None and c not in local
-                                        and (isinstance(v.value, list) or self.unit(v.unit))}})
+                        "coordinates": coordinates})
         return out
 
     def life_events(self, store: EventStore) -> list[dict[str, Any]]:
@@ -131,21 +147,114 @@ def _age_band(birth_year: int | None, age_group: str | None) -> str | None:
     return f"{low}-{low + 4}"
 
 
-def pack(instance: str, out: str | None = None) -> dict[str, Any]:
-    """`mothership pack`: the deidentified package of the consented kinds, gate-checked; nothing is sent."""
+SUBJECT_FIELDS = frozenset({"sex", "age_band", "ethnicity"})
+_PRECISION = {"int": 0, "1dp": 1, "2dp": 2}
+
+
+def _id_list(raw: str | None) -> list[str] | None:
+    if raw is None:
+        return None
+    ids = [part.strip() for part in raw.split(",") if part.strip()]
+    if not ids:
+        raise ValidationError("name at least one map id", code="MAP_NOT_FOUND")
+    return sorted(set(ids))
+
+
+def _decimals(decimals: int | None, precision: str | None) -> int | None:
+    if precision is not None and precision not in _PRECISION:
+        raise ValidationError("precision is int, 1dp or 2dp", code="BAD_PRECISION")
+    chosen = _PRECISION[precision] if precision is not None else decimals
+    if decimals is not None and precision is not None and decimals != _PRECISION[precision]:
+        raise ValidationError("decimals and precision disagree", code="BAD_PRECISION")
+    if chosen is not None and chosen not in (0, 1, 2):
+        raise ValidationError("decimals is 0, 1 or 2", code="BAD_PRECISION")
+    return chosen
+
+
+def _requested_kinds(raw: str | None, consented: set[str]) -> list[str] | None:
+    if raw is None:
+        return None
+    kinds = sorted({part.strip() for part in raw.split(",") if part.strip()})
+    unknown = [kind for kind in kinds if kind not in tuple(ContributionKind)]
+    if unknown:
+        raise ValidationError(f"unknown kind {unknown[0]!r}", code="UNKNOWN_KIND")
+    extra = [kind for kind in kinds if kind not in consented]
+    if extra:
+        raise ValidationError(f"{extra[0]} is not a consented kind", code="NOT_CONSENTED")
+    return kinds
+
+
+def _omitted(fields: list[str] | None) -> list[str]:
+    names = sorted(set(fields or []))
+    unknown = [field for field in names if field not in SUBJECT_FIELDS]
+    if unknown:
+        raise ValidationError(f"cannot omit {unknown[0]!r}; subject fields are sex, age_band and ethnicity",
+                              code="UNKNOWN_SUBJECT_FIELD")
+    return names
+
+
+def document(instance: str, minimization: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The contribution for these minimization options. Writes nothing and does not send."""
     record = active(instance)
     store = EventStore(instance)
-    kinds = set(record["kinds"])
+    opts = minimization or {}
+    consented = set(record["kinds"])
+    requested = opts.get("kinds")
+    use = set(requested) if isinstance(requested, list) else consented
+    omit = list(opts.get("omitted_subject_fields") or [])
+    decimals = opts.get("decimals")
+    recorded_maps = opts.get("maps")
+    allowed = set(recorded_maps) if isinstance(recorded_maps, list) else None
+    subject = {k: v for k, v in {"sex": store.subject.sex.value,
+                                 "age_band": _age_band(store.subject.birth_year, store.subject.age_group),
+                                 "ethnicity": store.subject.ethnicity.value if store.subject.ethnicity else None}.items()
+               if v and k not in omit}
+    wire = _Wire(instance, decimals if isinstance(decimals, int) else None)
+    sections: dict[str, Any] = {}
+    if ContributionKind.STATES in use:
+        states = wire.states(store, allowed)
+        if states:
+            sections[ContributionKind.STATES] = states
+    if ContributionKind.LIFE_EVENTS in use:
+        events = wire.life_events(store)
+        if events:
+            sections[ContributionKind.LIFE_EVENTS] = events
+    if ContributionKind.SCORES in use:
+        scores = _scores(store)
+        if scores:
+            sections[ContributionKind.SCORES] = scores
     doc: dict[str, Any] = {"kind": MothershipMessage.CONTRIBUTION, "schema_version": SCHEMA_VERSION,
                            "contributor_id": record["contributor_id"], "consent_version": record["consent_version"],
-                           "packed": _month(now()), "kinds": sorted(kinds),
-                           "subject": {k: v for k, v in {"sex": store.subject.sex.value,
-                                                         "age_band": _age_band(store.subject.birth_year, store.subject.age_group),
-                                                         "ethnicity": store.subject.ethnicity}.items() if v}}
-    wire = _Wire(instance)
-    build = {ContributionKind.STATES: wire.states, ContributionKind.LIFE_EVENTS: wire.life_events,
-             ContributionKind.SCORES: _scores}
-    doc |= {kind.value: section(store) for kind, section in build.items() if kind in kinds}
+                           "packed": _month(now()), "kinds": sorted(sections), "subject": subject,
+                           "minimization": {"maps": recorded_maps if isinstance(recorded_maps, list) else None,
+                                            "kinds": requested if isinstance(requested, list) else None,
+                                            "omitted_subject_fields": omit, "decimals": decimals if isinstance(decimals, int) else None}}
+    doc |= sections
+    return doc
+
+
+def pack(instance: str, out: str | None = None, maps: str | None = None, exclude_maps: list[str] | None = None,
+         kinds: str | None = None, omit_subject_fields: list[str] | None = None, decimals: int | None = None,
+         precision: str | None = None) -> dict[str, Any]:
+    """`mothership pack`: the deidentified package of the consented kinds, gate-checked; nothing is sent.
+
+    Minimization only removes maps, kinds, subject fields or precision. It cannot add an identifying field.
+    """
+    record = active(instance)
+    known = set(registry.load_all(instance))
+    chosen = _id_list(maps)
+    excluded = sorted(set(exclude_maps or []))
+    for map_id in (chosen or []) + excluded:
+        if map_id not in known:
+            raise NotFound(f"unknown map {map_id!r}", code="MAP_NOT_FOUND", hint="plsi maps list")
+    if chosen is None and not excluded:
+        recorded_maps = None
+    else:
+        base = chosen if chosen is not None else sorted(known - set(mapper.LOCAL_MAPS))
+        recorded_maps = sorted(set(base) - set(excluded) - set(mapper.LOCAL_MAPS))
+    minimization = {"maps": recorded_maps, "kinds": _requested_kinds(kinds, set(record["kinds"])),
+                    "omitted_subject_fields": _omitted(omit_subject_fields), "decimals": _decimals(decimals, precision)}
+    doc = document(instance, minimization)
     gate.require(doc, instance, what="package")
     path = Path(out) if out else folder(instance) / "outbox" / f"contribution-{ts_filename()}.json"
     files.atomic_write_json(path, doc)

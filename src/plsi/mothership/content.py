@@ -123,13 +123,31 @@ EVENT = _object({"kind", "year", "basis", "code"}, {
     "clinical_status": _one_of(frozenset(ClinicalStatus)), "dose": DOSE})
 SECTIONS = {ContributionKind.STATES: _list(STATE), ContributionKind.LIFE_EVENTS: _list(EVENT),
             ContributionKind.SCORES: _object(set(), {"overall": _summary, "by_coordinate": _keyed(_summary)})}
+SUBJECT_FIELDS = frozenset({"sex", "age_band", "ethnicity"})
 SUBJECT = _object(set(), {"sex": _one_of(frozenset(Sex)), "age_band": _one_of(AGE_BANDS),
                           "ethnicity": _one_of(frozenset(Ethnicity))})
+
+
+def _id_list_or_null(v: Any, at: str) -> list[dict[str, str]]:
+    return [] if v is None else _list(_id)(v, at)
+
+
+def _kind_list_or_null(v: Any, at: str) -> list[dict[str, str]]:
+    return [] if v is None else _list(_one_of(frozenset(ContributionKind)))(v, at)
+
+
+def _decimals(v: Any, at: str) -> list[dict[str, str]]:
+    return [] if v is None or (isinstance(v, int) and not isinstance(v, bool) and v in (0, 1, 2)) else [flag(at, "bad_format")]
+
+
+MINIMIZATION = _object({"maps", "kinds", "omitted_subject_fields", "decimals"}, {
+    "maps": _id_list_or_null, "kinds": _kind_list_or_null,
+    "omitted_subject_fields": _list(_one_of(SUBJECT_FIELDS)), "decimals": _decimals})
 # every field name above: the only key text a path shows
 NAMES = frozenset({"map_id", "map_version", "map_hash", "as_of", "gaps", "coordinates", "status", "value", "unit",
                    "comparator", "observed", "series", "t", "n", "items", "code", "system", "clinical_status", "kind",
                    "year", "until", "basis", "dose", "overall", "by_coordinate", "sex", "age_band", "ethnicity",
-                   *SCORE_KEYS})
+                   "minimization", "maps", "omitted_subject_fields", "decimals", *SCORE_KEYS})
 
 
 def code_objects(doc: dict[str, Any]) -> dict[str, tuple[Any, Any]]:
@@ -155,5 +173,20 @@ def violations(doc: dict[str, Any]) -> list[dict[str, str]]:
         out.append(flag("kinds", "unknown_kind"))
     else:
         out += [flag(s, "not_in_kinds") for s in ContributionKind if s in doc and s not in kinds]
-    checks = {"packed": _month, "consent_version": _match(CONSENT_VERSION), "subject": SUBJECT, **SECTIONS}
-    return out + [x for field, check in checks.items() if field in doc for x in check(doc[field], field)]
+    checks = {"packed": _month, "consent_version": _match(CONSENT_VERSION), "subject": SUBJECT,
+              "minimization": MINIMIZATION, **SECTIONS}
+    out += [x for field, check in checks.items() if field in doc for x in check(doc[field], field)]
+    mini = doc.get("minimization") if isinstance(doc.get("minimization"), dict) else {}
+    omitted = mini.get("omitted_subject_fields") if isinstance(mini.get("omitted_subject_fields"), list) else []
+    subject = doc.get("subject") if isinstance(doc.get("subject"), dict) else {}
+    out += [flag(f"subject.{field}", "not_omitted") for field in omitted if field in subject]
+    allowed = mini.get("maps")
+    if isinstance(allowed, list):
+        states = doc.get("states") if isinstance(doc.get("states"), list) else []
+        out += [flag(f"states[{n}].map_id", "not_in_maps") for n, state in enumerate(states)
+                if isinstance(state, dict) and state.get("map_id") not in allowed]
+    requested = mini.get("kinds")
+    packed = doc.get("kinds") if isinstance(doc.get("kinds"), list) else []
+    if isinstance(requested, list):
+        out += [flag("kinds", "not_in_kinds") for kind in packed if kind not in requested]
+    return out
