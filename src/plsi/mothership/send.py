@@ -13,7 +13,7 @@ from typing import Any
 
 from plsi import files
 from plsi.clock import now
-from plsi.errors import NetworkError, NotFound, UsageError
+from plsi.errors import NetworkError, NotFound, UsageError, ValidationError
 from plsi.mothership import gate, professional, scan
 from plsi.mothership.enroll import folder, forget_install, install, pending, sends
 from plsi.mothership.relay import address, post, refused
@@ -45,8 +45,19 @@ def _gated(file: str, instance: str | None, expected: str | None = None) -> tupl
 
 
 def check(file: str, instance: str | None = None, expected: str | None = None) -> dict[str, Any]:
-    """`mothership check`: run the gate on a file without sending or logging it."""
-    doc, *_ = _gated(file, instance, expected)
+    """`mothership check`: run the gate on a file without sending or logging it.
+
+    A contribution is also rebuilt from its `minimization` record. A hand edit fails even when the
+    gate would still accept the shape."""
+    doc, instance, _ = _gated(file, instance, expected)
+    if instance and isinstance(doc, dict) and doc.get("kind") == MothershipMessage.CONTRIBUTION and isinstance(doc.get("minimization"), dict):
+        from plsi.mothership.pack import document
+
+        fresh = document(instance, doc["minimization"])
+        if files.hash_json(fresh) != files.hash_json(doc):
+            raise ValidationError("the package does not match mothership pack for its minimization",
+                                  code="PACKAGE_MISMATCH",
+                                  hint="regenerate it with plsi mothership pack; do not edit the file")
     return {"file": file, "ok": True, "to": address(), "package_hash": files.hash_json(doc)}
 
 
