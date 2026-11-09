@@ -15,6 +15,7 @@ import yaml
 
 from plsi import net, references
 from plsi.life.importers import observation_items
+from plsi.unit_alias import identity_alias
 from plsi.life.models import ObservationInput
 from plsi.models import Code, LOINC_RE, parse
 from plsi.files import atomic_write_json, load_json
@@ -31,7 +32,7 @@ RXNORM_MIN_SCORE = 2.0  # approximateTerm false hits score < 1 (e.g. an abbrevia
 _UNIT_ALIASES = {
     "k/ul": "10*3/uL", "thou/ul": "10*3/uL", "m/ul": "10*6/uL", "mill/ul": "10*6/uL",
     "u/l": "U/L", "iu/l": "U/L", "fl": "fL", "%": "%", "percent": "%",
-    "mmhg": "mm[Hg]", "kg/m2": "kg/m2", "kg/m^2": "kg/m2",
+    "kg/m2": "kg/m2", "kg/m^2": "kg/m2",  # mmHg and VO2 spellings: plsi.unit_alias (shared with calc)
     "uiu/ml": "u[IU]/mL", "miu/l": "m[IU]/L", "miu/ml": "m[IU]/mL",
 }
 _COUNT_RE = re.compile(r"x?10[\^e*](\d+)/(ul|l)")
@@ -42,10 +43,13 @@ def normalize_unit(unit: str | None) -> str | None:
     """UCUM-syntax normalization of a reported unit string via a local alias table (no network, no value change).
 
     "K/uL", "x10E3/uL", "10^3/uL" -> "10*3/uL"; "mg/dl" -> "mg/dL"; "mcg/mL" -> "ug/mL"; "mEq/L" -> "meq/L".
+    ``mmHg`` -> ``mm[Hg]`` and Apple VO2 ``mL/min·kg`` -> ``mL/min/kg`` via plsi.unit_alias (the value is not scaled).
     Unknown strings are returned stripped and unchanged; None or blank -> None.
     """
     if unit is None or not unit.strip():
         return None
+    if (aliased := identity_alias(unit)) is not None:
+        return aliased
     raw = unit.strip()
     low = raw.replace("µ", "u").replace("μ", "u").replace(" ", "").lower().replace("mcg", "ug")
     if low in _UNIT_ALIASES:

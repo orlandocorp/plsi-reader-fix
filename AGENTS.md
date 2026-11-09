@@ -17,4 +17,4 @@ Start at [README.md](README.md). Grok Bot runtime behaviour lives in [plsi.md](p
 - **UTF-8:** every `open()`/`read_text()`/`write_text()` passes `encoding="utf-8"`; no BOMs; LF line endings.
 - **Extend by tiers:** a user map, then a formula (`engine: expr`), then a code extension (`plsi ext install`). Extensions add operations and never replace core gates, deid, scoring or the event log. They are full-trust code: install one only with the user's explicit approval naming its source.
 - **Never edit `events.jsonl`.** Corrections go through `plsi retract`; gates are never bypassed.
-- **Tests** run offline: `python -m pytest -q` from the repo root. `tests/` is gitignored except the tracked MH contract tests and their fixtures; mark network tests `live` and biolearn tests `clocks`.
+- **Tests** run offline: `python -m pytest -q` from the repo root. `tests/` is gitignored except the tracked MH contract tests and their fixtures, and `tests/test_apple_export.py` (synthetic Apple Health exports only) and `tests/test_oura_export.py` (synthetic Oura API v2 pages only); mark network tests `live` and biolearn tests `clocks`.

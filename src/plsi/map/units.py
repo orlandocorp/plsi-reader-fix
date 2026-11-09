@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from plsi.map.models import MapCoordinate
+from plsi.unit_alias import identity_alias
 
 _PREFIX = {"": 1.0, "k": 1e3, "d": 1e-1, "c": 1e-2, "m": 1e-3, "u": 1e-6, "n": 1e-9, "p": 1e-12, "f": 1e-15}
 _BASES = ("[IU]", "mol", "kat", "eq", "g", "L", "U")
@@ -36,7 +37,13 @@ def _scale(unit: str) -> tuple[tuple[str, str], float] | None:
 
 
 def to_canonical(value: float, unit: str | None, c: MapCoordinate) -> tuple[float, dict[str, Any] | None]:
-    """value in `unit` -> the coordinate's canonical unit: a sourced conversion, else a generic UCUM scale. ValueError otherwise."""
+    """value in `unit` -> the coordinate's canonical unit: a sourced conversion, else a generic UCUM scale. ValueError otherwise.
+
+    A documented identity alias (``mmHg`` / ``mm[Hg]``, ``mL/min·kg`` / ``mL/min/kg``) is the same unit:
+    the value is not scaled and no conversion factor is recorded. Anything else still needs a sourced factor
+    or a generic prefix/volume scale. This does not invent one."""
+    if unit is not None and (aliased := identity_alias(unit)) is not None:
+        unit = aliased
     if unit == c.unit:
         return value, None
     if unit is None:

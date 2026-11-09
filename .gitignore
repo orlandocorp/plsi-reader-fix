@@ -40,3 +40,7 @@ tests/fixtures/mh_routing/*
 !tests/fixtures/mh_wellbeing/
 tests/fixtures/mh_wellbeing/*
 !tests/fixtures/mh_wellbeing/**
+# Apple Health export reader (tracked). Synthetic data only; built in the test, no fixtures.
+!tests/test_apple_export.py
+# Oura API v2 offline reader (tracked). Synthetic pages only; built in the test, no fixtures.
+!tests/test_oura_export.py

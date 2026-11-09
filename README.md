@@ -138,7 +138,7 @@ Skills live in one folder per bot (`skills/<role>/<skill>/`); a bot uses only it
 | memoryhole/prune | PLSI Memory Hole | research notes marked retire -> `research retire` (each removal logged in research/notes/retired.md) |
 | visualizer/dashboard | PLSI Visualizer | `report --payload`: custom dashboards (trajectory brief, state now, plan review, life arrow, clinician brief, panel, research topic, target dossier and comparison) |
 | visualizer/charts | PLSI Visualizer | `export`, `status`, `due` -> charts designed per question, with uncertainty and legends |
-| wearables/import | PLSI Wearables | Open Wearables, Apple Health exports (`apple export`) or device exports -> calendar-month means (sleep, heart rate, HRV, steps, exercise minutes, active days) and VO2max readings, `normalize`, `ingest --csv`, `sleep_activity` map |
+| wearables/import | PLSI Wearables | Open Wearables, Apple Health exports (`apple export`, optional local `--provenance` sidecar), saved Oura API v2 pages (`oura export`, offline) or device exports -> calendar-month means (sleep, heart rate, HRV SDNN and RMSSD, steps, exercise minutes, active days) and VO2max readings, `normalize`, `ingest --csv`, `sleep_activity` map |
 | wearables/google-health | PLSI Wearables | Google Health API OAuth (`refs show google_health`) -> daily rows -> wearables/import |
 | wearables/apple-health | PLSI Wearables | P.R.O. iPhone app as an MCP server (`refs show pro_app`) -> daily rows -> wearables/import |
 | wearables/devices | PLSI Wearables | map gaps -> validated home devices and their import path |
