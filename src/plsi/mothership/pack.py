@@ -14,20 +14,21 @@ with another coordinate.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from pathlib import Path
 from statistics import fmean
 from typing import Any
 
 from plsi import codes, files
-from plsi.errors import NotFound, ValidationError
+from plsi.errors import GateFailed, NotFound, ValidationError
 from plsi.clock import now, ts_filename
 from plsi.life.store import EventStore
 from plsi.life.normalize import known_unit
 from plsi.map import derive, mapper, registry
 from plsi.map.models import CoordinateValue
 from plsi.models import Code
-from plsi.mothership import gate
+from plsi.mothership import content, gate
 from plsi.mothership.enroll import active, folder
 from plsi.mothership.relay import SCHEMA_VERSION, address
 from plsi.policy.score import calibration
@@ -193,8 +194,33 @@ def _omitted(fields: list[str] | None) -> list[str]:
     return names
 
 
+DEFAULT_MINIMIZATION: dict[str, Any] = {"maps": None, "kinds": None, "omitted_subject_fields": [], "decimals": None}
+
+
+def record_path(instance: str, package_hash: str) -> Path:
+    """The local minimization record of the package with this package_hash. It never leaves the computer."""
+    return folder(instance) / "minimization" / f"{package_hash.removeprefix('sha256:')}.json"
+
+
+def recorded(instance: str, package_hash: str) -> dict[str, Any] | None:
+    """The minimization the package with this package_hash was packed with, or None when there is no local record."""
+    path = record_path(instance, package_hash)
+    if not path.is_file():
+        return None
+    try:
+        entry = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        entry = None
+    if not isinstance(entry, dict) or entry.get("package_hash") != package_hash:
+        raise ValidationError("the local minimization record does not belong to this package", code="BAD_MINIMIZATION")
+    return entry.get("minimization")
+
+
 def document(instance: str, minimization: dict[str, Any] | None = None) -> dict[str, Any]:
-    """The contribution for these minimization options. Writes nothing and does not send."""
+    """The contribution for these minimization options. Writes nothing and does not send.
+
+    The options are not part of the document: the Mother refuses an unknown root key (`minimization` was one), so the
+    record of them stays local (`record_path`) and `mothership check` rebuilds the package from it."""
     record = active(instance)
     store = EventStore(instance)
     opts = minimization or {}
@@ -225,10 +251,7 @@ def document(instance: str, minimization: dict[str, Any] | None = None) -> dict[
             sections[ContributionKind.SCORES] = scores
     doc: dict[str, Any] = {"kind": MothershipMessage.CONTRIBUTION, "schema_version": SCHEMA_VERSION,
                            "contributor_id": record["contributor_id"], "consent_version": record["consent_version"],
-                           "packed": _month(now()), "kinds": sorted(sections), "subject": subject,
-                           "minimization": {"maps": recorded_maps if isinstance(recorded_maps, list) else None,
-                                            "kinds": requested if isinstance(requested, list) else None,
-                                            "omitted_subject_fields": omit, "decimals": decimals if isinstance(decimals, int) else None}}
+                           "packed": _month(now()), "kinds": sorted(sections), "subject": subject}
     doc |= sections
     return doc
 
@@ -256,10 +279,15 @@ def pack(instance: str, out: str | None = None, maps: str | None = None, exclude
                     "omitted_subject_fields": _omitted(omit_subject_fields), "decimals": _decimals(decimals, precision)}
     doc = document(instance, minimization)
     gate.require(doc, instance, what="package")
+    if found := content.minimized(doc, minimization):
+        raise GateFailed(found, "the package is not minimized as asked")
+    digest = files.hash_json(doc)
     path = Path(out) if out else folder(instance) / "outbox" / f"contribution-{ts_filename()}.json"
+    record = record_path(instance, digest)
+    files.atomic_write_json(record, {"package_hash": digest, "minimization": minimization})
     files.atomic_write_json(path, doc)
     counts = {"states": len(doc.get("states", [])), "life_events": len(doc.get("life_events", [])),
               "scored_predictions": doc.get("scores", {}).get("overall", {}).get("n_scored", 0)}
-    return {"file": str(path), "to": address(),
-            "package_hash": files.hash_json(doc), "counts": counts}
+    return {"file": str(path), "to": address(), "package_hash": digest, "minimization_record": str(record),
+            "counts": counts}
 

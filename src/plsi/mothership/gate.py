@@ -22,7 +22,7 @@ from plsi.vocab import (CodeSystem, ContributionKind, FeedbackSeverity, Feedback
                         RegistryItemKind, SourceKind, UserRole, WithdrawalRequest)
 
 FIELDS: dict[M, tuple[set[str], set[str]]] = {  # kind -> (required, optional) fields beyond kind and schema_version
-    M.CONTRIBUTION: ({"contributor_id", "consent_version", "packed", "kinds", "subject"}, set(ContributionKind) | {"minimization"}),
+    M.CONTRIBUTION: ({"contributor_id", "consent_version", "packed", "kinds", "subject"}, set(ContributionKind)),
     M.WITHDRAWAL: ({"contributor_id", "request"}, {"proof"}),
     M.RESEARCH_NOTE: ({"items", "method"}, {"report", "files"}),
     M.REGISTRY_UPDATE: ({"items"}, set()),

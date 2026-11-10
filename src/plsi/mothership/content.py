@@ -140,6 +140,8 @@ def _decimals(v: Any, at: str) -> list[dict[str, str]]:
     return [] if v is None or (isinstance(v, int) and not isinstance(v, bool) and v in (0, 1, 2)) else [flag(at, "bad_format")]
 
 
+# the local minimization record of a package (plsi.mothership.pack.record): never on the wire, the Mother does not
+# accept it; `mothership check` reads it from the instance and checks the package against it
 MINIMIZATION = _object({"maps", "kinds", "omitted_subject_fields", "decimals"}, {
     "maps": _id_list_or_null, "kinds": _kind_list_or_null,
     "omitted_subject_fields": _list(_one_of(SUBJECT_FIELDS)), "decimals": _decimals})
@@ -147,7 +149,7 @@ MINIMIZATION = _object({"maps", "kinds", "omitted_subject_fields", "decimals"}, 
 NAMES = frozenset({"map_id", "map_version", "map_hash", "as_of", "gaps", "coordinates", "status", "value", "unit",
                    "comparator", "observed", "series", "t", "n", "items", "code", "system", "clinical_status", "kind",
                    "year", "until", "basis", "dose", "overall", "by_coordinate", "sex", "age_band", "ethnicity",
-                   "minimization", "maps", "omitted_subject_fields", "decimals", *SCORE_KEYS})
+                   *SCORE_KEYS})
 
 
 def code_objects(doc: dict[str, Any]) -> dict[str, tuple[Any, Any]]:
@@ -173,10 +175,18 @@ def violations(doc: dict[str, Any]) -> list[dict[str, str]]:
         out.append(flag("kinds", "unknown_kind"))
     else:
         out += [flag(s, "not_in_kinds") for s in ContributionKind if s in doc and s not in kinds]
-    checks = {"packed": _month, "consent_version": _match(CONSENT_VERSION), "subject": SUBJECT,
-              "minimization": MINIMIZATION, **SECTIONS}
+    checks = {"packed": _month, "consent_version": _match(CONSENT_VERSION), "subject": SUBJECT, **SECTIONS}
     out += [x for field, check in checks.items() if field in doc for x in check(doc[field], field)]
-    mini = doc.get("minimization") if isinstance(doc.get("minimization"), dict) else {}
+    return out
+
+
+def minimized(doc: dict[str, Any], minimization: Any) -> list[dict[str, str]]:
+    """Everything in a contribution that its local minimization record left out, and a malformed record (paths under
+    `minimization`). The record stays on this computer; the package must not carry it."""
+    if not isinstance(minimization, dict):
+        return [flag("minimization", "bad_minimization")]
+    out = MINIMIZATION(minimization, "minimization")
+    mini = minimization
     omitted = mini.get("omitted_subject_fields") if isinstance(mini.get("omitted_subject_fields"), list) else []
     subject = doc.get("subject") if isinstance(doc.get("subject"), dict) else {}
     out += [flag(f"subject.{field}", "not_omitted") for field in omitted if field in subject]
