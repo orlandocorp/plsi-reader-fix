@@ -101,7 +101,8 @@ longevity_mothership`); `plsi mothership` talks to it, so you never call it your
    ethnicity group (when given), never the words of a record or a value computed
    from their age (age, biological age or its gap). A smaller package is another `plsi mothership pack` with
    `--maps`, `--exclude-map` (including `care_context`), `--kinds`, `--omit-subject-field ethnicity` and
-   `--decimals`, not an edit. `minimization` in the file records those choices. Attach the copies
+   `--decimals`, not an edit. Those choices are recorded locally (`mothership/minimization/<package_hash>.json`), never in the
+   file: the Mother refuses an unknown root key. Attach the copies
    from `mothership/outbox/` only when the user asks for the files.
 
 5. **Stop or delete.** "Stop sharing": one card (Stop / Stop and delete what was sent / Cancel). Then:

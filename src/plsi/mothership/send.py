@@ -13,8 +13,8 @@ from typing import Any
 
 from plsi import files
 from plsi.clock import now
-from plsi.errors import NetworkError, NotFound, UsageError, ValidationError
-from plsi.mothership import gate, professional, scan
+from plsi.errors import GateFailed, NetworkError, NotFound, UsageError, ValidationError
+from plsi.mothership import content, gate, professional, scan
 from plsi.mothership.enroll import folder, forget_install, install, pending, sends
 from plsi.mothership.relay import address, post, refused
 from plsi.vocab import MothershipMessage, ProfessionalScope, ReceiptState, WithdrawalRequest
@@ -47,18 +47,24 @@ def _gated(file: str, instance: str | None, expected: str | None = None) -> tupl
 def check(file: str, instance: str | None = None, expected: str | None = None) -> dict[str, Any]:
     """`mothership check`: run the gate on a file without sending or logging it.
 
-    A contribution is also rebuilt from its `minimization` record. A hand edit fails even when the
-    gate would still accept the shape."""
+    A contribution is also checked against its local minimization record (kept by `mothership pack` under the
+    instance, keyed by package_hash, never in the file) and rebuilt from it: a hand edit fails even when the gate would
+    still accept the shape. Without a record the package must be the unminimized one."""
     doc, instance, _ = _gated(file, instance, expected)
-    if instance and isinstance(doc, dict) and doc.get("kind") == MothershipMessage.CONTRIBUTION and isinstance(doc.get("minimization"), dict):
-        from plsi.mothership.pack import document
+    digest = files.hash_json(doc)
+    if instance and isinstance(doc, dict) and doc.get("kind") == MothershipMessage.CONTRIBUTION:
+        from plsi.mothership.pack import DEFAULT_MINIMIZATION, document, recorded
 
-        fresh = document(instance, doc["minimization"])
-        if files.hash_json(fresh) != files.hash_json(doc):
+        found = recorded(instance, digest)
+        minimization = found if found is not None else DEFAULT_MINIMIZATION
+        if bad := content.minimized(doc, minimization):
+            raise GateFailed(bad, "the package is not minimized as its record says")
+        if files.hash_json(document(instance, minimization)) != digest:
             raise ValidationError("the package does not match mothership pack for its minimization",
                                   code="PACKAGE_MISMATCH",
-                                  hint="regenerate it with plsi mothership pack; do not edit the file")
-    return {"file": file, "ok": True, "to": address(), "package_hash": files.hash_json(doc)}
+                                  hint="regenerate it with plsi mothership pack; do not edit the file" if found is not None
+                                  else "no local minimization record for this package_hash; regenerate it with plsi mothership pack")
+    return {"file": file, "ok": True, "to": address(), "package_hash": digest}
 
 
 def send(file: str, expected: str, instance: str | None = None) -> dict[str, Any]:
